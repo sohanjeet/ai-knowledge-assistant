@@ -35,6 +35,10 @@ Run tests: `python manage.py test` (needs pgvector installed; tests never call t
 Embeddings are generated only on request, never during upload, so `OPENAI_API_KEY` can stay empty
 unless you embed documents (see `embed_document_chunks` in `backend/apps/documents/services.py`).
 
+Semantic search: `POST /api/retrieval/search/` with `{"query": "...", "limit": 5, "document_ids": [1, 2]}`
+(`limit` and `document_ids` are optional) returns the caller's own most relevant embedded chunks.
+It embeds the query, so it needs `OPENAI_API_KEY`; no answer is generated yet.
+
 ## Frontend setup
 
 ```powershell

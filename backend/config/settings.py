@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.documents",
     "apps.embeddings",
+    "apps.retrieval",
 ]
 
 MIDDLEWARE = [
@@ -172,6 +173,14 @@ if not EMBEDDING_MODEL:
     raise ImproperlyConfigured("EMBEDDING_MODEL must not be empty.")
 if EMBEDDING_DIMENSIONS <= 0:
     raise ImproperlyConfigured("EMBEDDING_DIMENSIONS must be greater than 0.")
+
+
+# Semantic retrieval (apps.retrieval). A search returns 5 chunks unless the caller asks for a
+# different number, which may not exceed this maximum.
+RETRIEVAL_DEFAULT_LIMIT = 5
+RETRIEVAL_MAX_LIMIT = int(os.environ.get("RETRIEVAL_MAX_LIMIT", "20"))
+if RETRIEVAL_MAX_LIMIT < RETRIEVAL_DEFAULT_LIMIT:
+    raise ImproperlyConfigured(f"RETRIEVAL_MAX_LIMIT must be at least {RETRIEVAL_DEFAULT_LIMIT}.")
 
 
 # Email
