@@ -10,22 +10,29 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load variables from backend/.env (if present)
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-es&a@m&2un%g5^1g8gbx2!hpoo$xg)ps%*4sp357zbrn9ogdng"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-only-change-me")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 
 
 # Application definition
@@ -37,9 +44,18 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Third party
+    "rest_framework",
+    "corsheaders",
+    # Local apps
+    "apps.core",
+    "apps.accounts",
+    "apps.documents",
+    "apps.embeddings",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -74,8 +90,12 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("DB_NAME", "ai_knowledge_assistant"),
+        "USER": os.environ.get("DB_USER", "postgres"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+        "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("DB_PORT", "5432"),
     }
 }
 
@@ -117,6 +137,43 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 
+# Uploaded files (local development storage; swap the storage backend later for cloud storage)
+# Files are not served over HTTP; the API never exposes their paths.
+MEDIA_ROOT = BASE_DIR / "media"
+
+# Maximum accepted size for an uploaded document, in MB.
+DOCUMENT_MAX_UPLOAD_SIZE = int(os.environ.get("DOCUMENT_MAX_UPLOAD_MB", "10")) * 1024 * 1024
+
+# Text chunking, in characters. Defaults are roughly 150-200 words per chunk with ~20% overlap:
+# small enough to be a focused retrieval unit, large enough to keep a paragraph's context.
+DOCUMENT_CHUNK_SIZE = int(os.environ.get("DOCUMENT_CHUNK_SIZE", "1000"))
+DOCUMENT_CHUNK_OVERLAP = int(os.environ.get("DOCUMENT_CHUNK_OVERLAP", "200"))
+# Fail at startup on a bad combination instead of misbehaving (or looping) at upload time.
+if DOCUMENT_CHUNK_SIZE <= 0:
+    raise ImproperlyConfigured("DOCUMENT_CHUNK_SIZE must be greater than 0.")
+if DOCUMENT_CHUNK_OVERLAP < 0:
+    raise ImproperlyConfigured("DOCUMENT_CHUNK_OVERLAP must be 0 or greater.")
+if DOCUMENT_CHUNK_OVERLAP >= DOCUMENT_CHUNK_SIZE:
+    raise ImproperlyConfigured("DOCUMENT_CHUNK_OVERLAP must be smaller than DOCUMENT_CHUNK_SIZE.")
+
+
+# Embeddings. Generated only by an explicit service call (apps.documents.services.embed_document_chunks),
+# never during upload, so the app runs and tests pass without any provider credentials.
+EMBEDDING_PROVIDERS = ("openai",)  # implemented providers (see apps.embeddings.services.get_provider)
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "openai").strip().lower()
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+# Must equal the DocumentChunk.embedding column size; a system check fails `manage.py check` otherwise.
+EMBEDDING_DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
+# Only needed when embeddings are actually generated; checked then, not at startup.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if EMBEDDING_PROVIDER not in EMBEDDING_PROVIDERS:
+    raise ImproperlyConfigured(f"EMBEDDING_PROVIDER must be one of: {', '.join(EMBEDDING_PROVIDERS)}.")
+if not EMBEDDING_MODEL:
+    raise ImproperlyConfigured("EMBEDDING_MODEL must not be empty.")
+if EMBEDDING_DIMENSIONS <= 0:
+    raise ImproperlyConfigured("EMBEDDING_DIMENSIONS must be greater than 0.")
+
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
@@ -125,3 +182,20 @@ MAILERS = {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",
     },
 }
+
+
+# Django REST Framework
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    # Clients send "Authorization: Bearer <access token>".
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+}
+
+
+# CORS (allow the local React dev server to call this API)
+CORS_ALLOWED_ORIGINS = os.environ.get(
+    "CORS_ALLOWED_ORIGINS", "http://localhost:5173"
+).split(",")
